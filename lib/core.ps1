@@ -46,6 +46,150 @@ function Set-PESubsystem($filePath, $targetSubsystem) {
     return $true
 }
 
+function Url_Proxy($url) {
+    # 获取客户端ip属地
+    # $ip = ''
+    $region = 'Unknown'
+    foreach ($ipapi in ('https://dash.cloudflare.com/cdn-cgi/trace', 'https://cf-ns.com/cdn-cgi/trace','https://1.0.0.1/cdn-cgi/trace')) {
+        try {
+            $ipapi = Invoke-RestMethod -Uri $ipapi -TimeoutSec 5 -UseBasicParsing
+            # if ($ipapi -match 'ip=([\d.]+)' ) {
+            #     $ip = $Matches[1]
+            # }
+            if ($ipapi -match 'loc=(\w+)' ) {
+                $region = $Matches[1]
+                break
+            }
+        } catch {
+            $region = 'CN'
+        }
+    }
+    # 如果不在 CN，则使用直连
+    if ($region -ne 'CN') {
+        success "[UrlProxy] direct (Not in CN)"
+        return $url
+    }
+    # 如果在 CN，则使用加速地址
+    success "[UrlProxy] You are in CN."
+
+    # 定义替换规则的映射表
+    $replacementMap = @{
+        # GitHub Releases
+        '(^https?://github\.com/.+/releases/.*download)'                         = 'https://gh.xrgzs.top/$1'
+
+        # GitHub Archive
+        '(^https?://github\.com/.+/archive/)'                                    = 'https://gh.xrgzs.top/$1'
+
+        # GitHub Raw
+        '(^https?://raw\.githubusercontent\.com)'                                = 'https://gh.xrgzs.top/$1'
+        '(^https?://github\.com/.+/raw/)'                                        = 'https://gh.xrgzs.top/$1'
+
+        # KDE Apps
+        'download\.kde\.org'                                                     = 'mirrors.ustc.edu.cn/kde'
+
+        # 7-Zip
+        'www\.7-zip\.org/a'                                                      = 'mirror.nju.edu.cn/7-zip'
+
+        # LaTeX, MiKTeX
+        'miktex\.org/download/ctan'                                              = 'mirrors.aliyun.com/CTAN'
+        'mirrors.+/CTAN'                                                         = 'mirrors.aliyun.com/CTAN'
+
+        # Node
+        'nodejs\.org/dist'                                                       = 'npmmirror.com/mirrors/node'
+
+        # Python
+        'www\.python\.org/ftp/python'                                            = 'npmmirror.com/mirrors/python'
+
+        # Go
+        'dl\.google\.com/go'                                                     = 'mirrors.aliyun.com/golang'
+
+        # VLC
+        'download\.videolan\.org/pub'                                            = 'mirrors.aliyun.com/videolan'
+
+        # Inkscape
+        'media\.inkscape\.org/dl/resources/file'                                 = 'mirrors.nju.edu.cn/inkscape'
+
+        # DBeaver
+        'dbeaver\.io/files'                                                      = 'gh.xrgzs.top/https://github.com/dbeaver/dbeaver/releases/download'
+
+        # OBS Studio
+        '(cdn-fastly\.obsproject\.com/downloads/OBS-Studio-(.+)-Windows\.zip)'   = 'gh.xrgzs.top/https://github.com/obsproject/obs-studio/releases/download/$1/OBS-Studio-$1-Windows.zip'
+        '(cdn-fastly\.obsproject\.com/downloads/OBS-Studio-(.+)-Full)'           = 'gh.xrgzs.top/https://github.com/obsproject/obs-studio/releases/download/$1/OBS-Studio-$1-Full'
+
+        # GIMP
+        'download\.gimp\.org/mirror/pub'                                         = 'mirrors.aliyun.com/gimp'
+
+        # Blender
+        'download\.blender\.org'                                                 = 'mirrors.aliyun.com/blender'
+
+        # VirtualBox
+        'download\.virtualbox\.org/virtualbox'                                   = 'mirrors.nju.edu.cn/virtualbox'
+
+        # Lunacy
+        'lun-eu\.icons8\.com/s/'                                                 = 'lcdn.icons8.com/'
+
+        # Strawberry
+        '(files\.jkvinge\.net/packages/strawberry/StrawberrySetup-(.+)-mingw-x)' = 'gh.xrgzs.top/https://github.com/strawberrymusicplayer/strawberry/releases/download/$1/StrawberrySetup-$1-mingw-x'
+
+        # SumatraPDF
+        'files\.sumatrapdfreader\.org/file/kjk-files/software/sumatrapdf/rel'    = 'www.sumatrapdfreader.org/dl/rel'
+
+        # Vim
+        'ftp\.nluug\.nl/pub/vim/pc'                                              = 'mirrors.ustc.edu.cn/vim/pc'
+
+        # Cygwin
+        '//.*/cygwin/'                                                           = '//mirrors.aliyun.com/cygwin/'
+
+        # Tor Browser, Tor
+        'archive\.torproject\.org/tor-package-archive'                           = 'tor.ybti.net/dist'
+
+        # FastCopy
+        'fastcopy\.jp/archive'                                                   = 'gh.xrgzs.top/https://raw.githubusercontent.com/FastCopyLab/FastCopyDist2/main'
+
+        # Kodi
+        'mirrors\.kodi\.tv'                                                      = 'mirrors.tuna.tsinghua.edu.cn/kodi'
+
+        # Typora
+        'download\.typora\.io'                                                   = 'download2.typoraio.cn'
+    }
+
+    # 进一步获取IP类型
+    try {
+        $ipInfo = Invoke-RestMethod -Uri "https://api.ip.sb/geoip/" -UseBasicParsing -TimeoutSec 5 -UserAgent 'curl/8.8.0'
+    }
+    catch {
+        try {
+            $ipInfo = Invoke-RestMethod -Uri "https://realip.cc/" -UseBasicParsing -TimeoutSec 5 -UserAgent 'curl/8.8.0'
+        }
+        catch {
+            $ipInfo = @{ isp = 'Unknown' }
+        }
+    }
+
+    # 移动网络特殊处理
+    if ($ipInfo.isp -like '*China Mobile*') {
+        success "[UrlProxy] Detected as China Mobile Network"
+        $replacementMap += @{
+            # SourceForge
+            # Use liquidtelecom
+            '(//downloads\.sourceforge\.net/project/.+)' = '$1?use_mirror=liquidtelecom'
+            '(//sourceforge\.net/projects/.+/files/.+)'  = '$1?use_mirror=liquidtelecom'
+            '(\w+)(\.dl\.sourceforge\.net)'              = 'liquidtelecom$2'
+        }
+    }
+
+    # 循环处理每个替换规则
+    foreach ($pattern in $replacementMap.Keys) {
+        if ($url -match $pattern) {
+            $url = $url -replace $pattern, $replacementMap[$pattern]
+            success "[UrlProxy] Hit: $pattern"
+            break
+        }
+    }
+    # 返回处理后的URL
+    return $url
+}
+
 function Optimize-SecurityProtocol {
     # .NET Framework 4.7+ has a default security protocol called 'SystemDefault',
     # which allows the operating system to choose the best protocol to use.
